@@ -37,7 +37,9 @@ Put your data into a data/ file. Otherwise, the parser goes through
 data in the current working directory. You can also point a path to a specific file.
 
 mode='all' requires `email` prefix for .fit filenames
+```
 parser = FitParser(path="./data", email="user@example.com", mode="all")
+```
 
 ### DataFrame
 Convert to a pandas DataFrame with datetimes and metrics:
