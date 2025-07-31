@@ -10,22 +10,16 @@ Uses Garmin .fit files decoded with the garmin_fit_sdk to:
 - Converts the raw data into a pandas DataFrame or a NumPy array.
 - Timezone‑aware datetime handling.
 
-## Installation (Linux)
+## Installation
 
-1. Clone this repository (or copy fitparserx.py into your project):
-``` 
-  git clone https://github.com/YourUserName/my-library.git
-  cd my_library
+1. (Optional) Create and activate a virtual environment:
 ```
-
-2. (Optional) Create and activate a virtual environment:
+python3 -m venv .venv
+source .venv/bin/activate
 ```
-python3 -m venv venv
-source venv/bin/activate
+2. Install the package using pip:
 ```
-3. Install dependencies:
-```
-pip install garmin_fit_sdk numpy pandas pytz
+pip install fitparserx
 ```
 
 ## Usage
@@ -45,15 +39,15 @@ parser = FitParser(path="./data", email="user@example.com", mode="all")
 Convert to a pandas DataFrame with datetimes and metrics:
 ```
 # Only heart rate (default)
-df = parser.to_dataframe()
+fit_df = parser.to_dataframe()
 
 # Include stress level and respiration rate, fill missing with NaN
-df2 = parser.to_dataframe(add_metrics=["stress_level", "respiration_rate"], timezone="UTC")
+fit_df = parser.to_dataframe(add_metrics=["stress_level", "respiration_rate"], timezone="UTC")
 ```
 
 ### NumPy Array
 ```
-df = parser.to_numpy()
+fit_np = parser.to_numpy()
 ```
 
 ### License
