@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fitparserx"
-version = "0.1.2"
+version = "0.1.4"
 description = "Parse Garmin .fit wellness data, process it, and make DataFrame and NumPy arrays"
 readme = "README.md"
 license = { file = "LICENSE.md" }

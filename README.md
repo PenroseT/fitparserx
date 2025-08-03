@@ -45,6 +45,16 @@ fit_df = parser.to_dataframe()
 fit_df = parser.to_dataframe(add_metrics=["stress_level", "respiration_rate"], timezone="UTC")
 ```
 
+Include the type of activity at each moment (e.g. 'sedentary' or 'walking') using the "add_state" flag:
+```
+fit_df = parser.to_dataframe(add_state=True)
+```
+
+Choose a filling strategy for missing data via the fill parameter. By default (fill=None), raw values are retained. If you set fill=np.nan, any non-positive entries in "heart_rate", "stress_level" and "respiration_rate" will be replaced with np.nan.
+```
+fit_df = parser.to_dataframe(fill=np.nan)
+```
+
 ### NumPy Array
 ```
 fit_np = parser.to_numpy()

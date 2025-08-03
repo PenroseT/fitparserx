@@ -169,13 +169,19 @@ class FitParser:
                               category = UserWarning,
                               stacklevel=2)
 
-    def _parse_hr(self, file):
+    def _parse_hr(self, file, fill=None, add_state=False):
         """
         Parses through a file dictionary entry with the key named
         'monitoring_mesgs'. Looks for the full timestamp and records
         it. This is used as a base time. The message time comes with
         the timestamp_16 from which the appropriate datetime object
         is extracted.
+
+        add_state: Bool
+        ------------------------------------------------------------
+        If True, adds the activity_type (such as 'sedentary' or
+        'walking'). Missing times are filled with the
+        last recorded activity.
 
         Returns: List[datetime], List[int] 
         -------------------------------------------------------------
@@ -190,17 +196,42 @@ class FitParser:
 
         datetimes = []
         heart_rates = []
+        states = []
+        
         current_time = base_time
+        current_state = "NaN"
         
         for messg in file["monitoring_mesgs"]:
-            if "timestamp" in messg.keys():
-                current_time = messg["timestamp"]
-            if "heart_rate" in messg.keys():
-                ts_16 = messg["timestamp_16"]
-                heart_rates.append(messg["heart_rate"])
-                datetimes.append(self._convert_garmin_to_real(current_time, ts_16))
+            current_time = messg.get("timestamp",
+                                     current_time) # Defaults to previous time
+            hr = messg.get("heart_rate")
+            ts_16 = messg.get("timestamp_16")
 
-        return datetimes, heart_rates
+            if add_state:
+                current_state = messg.get("activity_type", current_state)
+                
+            # hr and ts_16 keys always come together
+            if current_time is None or hr is None:
+                continue
+                
+            if hr:
+                hr = hr if hr>0 else self._fill(fill, hr)
+                heart_rates.append(hr)
+                datetimes.append(self._convert_garmin_to_real(current_time, ts_16))
+                if add_state:
+                    states.append(current_state)
+
+        return datetimes, heart_rates, states
+
+    def _fill(self, fill, val):
+        """
+        Fill according to chosen fill strategy.
+        """
+        if fill==np.nan:
+            return np.nan
+        
+        return val
+
     
     def _find_base_time(self, messages):
         """
@@ -214,15 +245,13 @@ class FitParser:
         raise ValueError(f"Key 'timestamp' not found in the list.")
 
     def _parse_metric(self, file, metric,
-                      datetimes):
+                      datetimes, fill=None):
         """
         Checks if the datetime from the message list is present
         in the datetimes for the given metric.
         If it is, adds the metric value to the list.
         If it is not, fills the entry with np.nan.
         """
-
-        metric_vals = []
         metric_messages = file[FitParser._allowed_metrics[metric]]
 
         # Associate datetime to a value
@@ -230,13 +259,24 @@ class FitParser:
                           messg[FitParser._value_labels[metric]]
                           for messg in metric_messages}
 
+        if fill:
+            metric_vals = []
+            for dt in datetimes:
+                val = metric_records.get(dt, np.nan)
+                if val > 0:
+                    metric_vals.append(val)
+                else:
+                    metric_vals.append(self._fill(val, fill))
+            return metric_vals
+            
         return [metric_records.get(dt, np.nan) for dt in datetimes]
 
+    
     def _timezone_adjustment(self, datetimes, timezone):
         return [dt.astimezone(timezone) for dt in datetimes]
     
-    def to_dataframe(self, add_metrics=None, fill=np.nan,
-                     timezone="UTC", **read_kwargs):
+    def to_dataframe(self, add_metrics=None, add_state=False,
+                     fill=None, timezone="UTC", **read_kwargs):
         """
         Creates a dataframe from .fit data suitable for
         data analysis.
@@ -249,11 +289,22 @@ class FitParser:
             are always included.
             The options are 'stress_level' and 'respiration_rate'.
             If None, the 'heart_rate' is the only represented metrics.
+        
+        add_state: Bool
+            Adds the column which specifies the activity_type at
+            all times, e.g. 'sedentary', 'walking'.
 
-        fill:
+        fill: None | np.nan | {to be implemented: 'connect'}
             When choosing the other two columns choose the
             strategy for interpolating the missing data.
-            Defaults to np.nan.
+            
+            Defaults to None. Missing data is given by 0
+            for 'heart_rate', -1 for 'respiration_rate',
+            and -2 for 'stress_level'.
+            np.nan: Modifies invalid values to np.nan.
+            {connect}: Fills with the last valid value. If
+            there is none fills with np.nan.
+
 
         Returns:
         ----------------------------------------------
@@ -274,24 +325,32 @@ class FitParser:
         data = {"datetime":[], "heart_rate":[]}
         if add_metrics:
             data = {**data, **{metric:[] for metric in add_metrics}}
+        if add_state:
+            data = {**data, **{"activity_type":[]}}
 
         for file in self._parse_entry(**read_kwargs):
             # The heart rate is treated separately since it also
             # provides datetimes that other columns are based on
             if FitParser._allowed_metrics['heart_rate'] in file.keys():
 
-                datetimes, heart_rates = self._parse_hr(file)
+                datetimes, heart_rates, states = self._parse_hr(file, fill=fill,
+                                                        add_state=add_state)
 
                 data['datetime'].extend(datetimes)
                 data['heart_rate'].extend(heart_rates)
+                
+                if add_state:
+                    data['activity_type'].extend(states)
             
             if add_metrics:
                 for metric in add_metrics:
                     if FitParser._allowed_metrics[metric] in file.keys():
 
-                        metric_vals = self._parse_metric(file, metric, datetimes)
+                        metric_vals = self._parse_metric(file, metric,
+                                                         datetimes, fill=fill)
                         data[metric].extend(metric_vals)
 
+        
         if timezone!='UTC': 
             data['datetime']=self._timezone_adjustment(data['datetime'],
                                                         timezone=pytz.timezone(timezone))
@@ -301,15 +360,15 @@ class FitParser:
             
         return fit_df
 
-    def to_numpy(self, add_metrics=None, fill=np.nan,
-                     timezone="UTC", **read_kwargs):
+    def to_numpy(self, add_metrics=None, add_state=False,
+                 fill=None, timezone="UTC", **read_kwargs):
         """
         Creates the DataFrame using the .to_dataframe method.
         Converts the DataFrame into the NumPy array.
         """
 
-        fit_df = self.to_dataframe(add_metrics=add_metrics, fill=fill,
-                                  timezone=timezone, **read_kwargs)
+        fit_df = self.to_dataframe(add_metrics=add_metrics, add_state=add_state,
+                                   fill=fill, timezone=timezone, **read_kwargs)
         
         return fit_df.to_numpy()
 
